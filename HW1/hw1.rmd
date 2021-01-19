@@ -132,7 +132,7 @@ Do **not** put this text file `pride_and_prejudice.txt` in Git. Using a `for` lo
     declare -a NameArray=("Elizabeth" "Jane" "Lydia" "Darcy")
     for name in ${NameArray[@]};
     do
-      grep -o -c $name pride_and_prejudice.txt
+      grep -o $name pride_and_prejudice.txt | wc -l
     done
     ```
 
