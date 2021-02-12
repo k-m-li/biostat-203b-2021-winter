@@ -23,15 +23,15 @@ library(lubridate)
 os <- sessionInfo()$running
 if (str_detect(os, "Linux")) {
   mimic_path <- "/usr/203b-data/mimic-iv"
-} else if (str_detect(os, "macOS")) {
-  mimic_path <- "/Users/huazhou/Documents/Box Sync/MIMIC/mimic-iv-0.4"
+} else {
+  mimic_path <- "C:/Users/Kelly Li/Documents/R/B203b/biostat-203b-2021-winter/HW2"
 }
 ```
 
 Use tidyverse (ggpot2, dplyr) to explore the [MIMIC-IV](https://mimic-iv.mit.edu) data introduced in [homework 1](https://ucla-biostat203b-2021winter.github.io/hw/hw1/hw1.html).
 
 ```{r}
-system(str_c("tree -s -L 2 ", shQuote(mimic_path)), intern = TRUE)
+system(str_c("tree -s -L 2 ", shQuote(mimic_path)), intern = TRUE) #This may not work since it is on my windows system
 ```
 
 ## Q1. PhysioNet credential
@@ -50,12 +50,11 @@ There are quite a few utilities in R for reading data files. Let us test the spe
 In this homework, we stick to the tidyverse. 
 
 ```{r}
-setwd("/usr/203b-data/mimic-iv/core")
 system.time(read.csv("admissions.csv.gz"))
 system.time(read_csv("admissions.csv.gz"))
 system.time(fread("admissions.csv.gz"))
 ```
-`read.csv` takes almost 10 to 20 times as long as the other two functions.
+`read.csv` takes almost 10 to 20 times as long as the other two functions on the R server. Depending by system, generally, it will take longer than the other two functions.
 
 ## Q3. ICU stays
 
@@ -68,7 +67,7 @@ system.time(fread("admissions.csv.gz"))
 - last ICU unit  
 
 ```{r}
-icu <- read_csv("/usr/203b-data/mimic-iv/icu/icustays.csv.gz")
+icu <- read_csv("icustays.csv.gz")
 
 #Find unique counts for icu and create a table for ggplot to read
 count <- summarise_all(icu, n_distinct) %>%
@@ -141,7 +140,7 @@ Note it is possible that one patient (uniquely identified by the `subject_id`) i
 
 ```{r}
 #Creating data sets for plotting
-adm <- read_csv("/usr/203b-data/mimic-iv/core/admissions.csv.gz")
+adm <- read_csv("admissions.csv.gz")
 #Create columns for year, month, day, and time
 adm <- adm %>% mutate(year = year(admittime), 
                       month = month(admittime,
@@ -318,7 +317,7 @@ Explore `patients.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/core/patients
 - `anchor_age` (explain pattern you see)
 
 ```{r}
-patients <- read_csv("/usr/203b-data/mimic-iv/core/patients.csv.gz")
+patients <- read_csv("patients.csv.gz")
 
 ggplot(patients) +
   geom_bar(mapping = aes(x = gender),
@@ -347,29 +346,36 @@ A bar graph is indicated for male and female gender in patients. There are 20022
 We are interested in the lab measurements of creatinine (50912), potassium (50971), sodium (50983), chloride (50902), bicarbonate (50882), hematocrit (51221), white blood cell count (51301), glucose (50931), magnesium (50960), calcium (50893), and lactate (50813). Find the `itemid`s of these lab measurements from `d_labitems.csv.gz` and retrieve a subset of `labevents.csv.gz` only containing these items.
 
 ```{r}
-setwd("/usr/203b-data/mimic-iv-derived-data/")
-labevents <- fread("/usr/203b-data/mimic-iv-derived-data/labevents_filtered_itemid.csv.gz",
+labevents <- fread("labevents_filtered_itemid.csv.gz",
                    col.names = c("subject_id",
                                  "hadm_id",
                                  "itemid",
                                  "charttime",
                                  "valuenum"))
 #V1-5: subjid hadmid itemid charttime valuenum
-```
-
-
-```{r}
-#Filtering labevents for only measurements of interest
 
 idset <- c(50912, 50971, 50983, 50902,
            50882, 51221, 51301, 50931, 
            50960, 50893, 50813)
+idname <- c("creatinine",
+            "potassium",
+            "sodium",
+            "chloride",
+            "bicarbonate",
+            "hematocrit",
+            "white blood cell count",
+            "glucose",
+            "magnesium",
+            "calcium",
+            "lactate") #used later to rename columns
 labevents.want <- labevents %>%
   filter(itemid %in% idset) 
 
+head(labevents.want)
 ```
 
-Since the `itemid`s are given for 
+Since the `itemid`s are given for the lab events of interest, the set was filtered for only rows where the `itemid` was one of interest.
+
 ## Q7. Vitals from chartered events
 
 We are interested in the vitals for ICU patients: heart rate, mean and systolic blood pressure (invasive and noninvasive measurements combined), body temperature, SpO2, and respiratory rate. Find the `itemid`s of these vitals from `d_items.csv.gz` and retrieve a subset of `chartevents.csv.gz` only containing these items.
@@ -379,7 +385,6 @@ We are interested in the vitals for ICU patients: heart rate, mean and systolic 
 `d_items.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/d_items/>) is the dictionary for the `itemid` in `chartevents.csv.gz`. 
 
 ```{r}
-setwd("/usr/203b-data/mimic-iv-derived-data/")
 chartevents <- fread("chartevents_filtered_itemid.csv.gz",
                      col.names = c("subject_id",
                                    "hadm_id",
@@ -387,9 +392,9 @@ chartevents <- fread("chartevents_filtered_itemid.csv.gz",
                                    "charttime",
                                    "itemid",
                                    "valuenum"))
-dict <- read_csv("/usr/203b-data/mimic-iv/icu/d_items.csv.gz")
+dict <- read_csv("d_items.csv.gz")
 
-grep("blood pressure|oxygen saturation|respiratory|temperature|heart rate", dict$label, 
+grep("blood pressure|saturation|respiratory|temperature|heart rate", dict$label, 
      value = TRUE, 
      ignore.case = TRUE) #searching for labels to see what type of vital measurements match the kind of data we have
 
@@ -398,13 +403,16 @@ want <- c("Heart Rate",
           "Arterial Blood Pressure mean",
           "Non Invasive Blood Pressure systolic",
           "Non Invasive Blood Pressure mean",
-          "Temperature Celsius",
-          "PAR-Oxygen saturation",
+          "Temperature Fahrenheit",
           "Respiratory Rate") #wanted labels from previous grep search
 
 dict.want <- filter(dict, label %in% want) #filter out dictionary for only what we want
 chartevents.want <- filter(chartevents, itemid %in% dict.want$itemid) #filter chart events for only stuff from dictionary
+
+head(chartevents.want)
 ```
+
+First, I used `grep` to search labels that would match the measurements that the question asked for. Then, the dictionary was filtered to get `itemid`s for the corresponding measurements of interest, and the data was filtered by `itemid` of interest. In the filtered data `chartevents_filtered_itemid.csv.gz`, there is no id for any variable involving SPO2, so it was not included.
 
 ## Q8. Putting things together
 
@@ -424,23 +432,53 @@ and columns contain at least following variables
 
 ```{r}
 #My code:
-ce <- chartevents.want[chartevents.want$subject_id %in% icu$subject_id, ]
-le <- labevents.want[labevents.want$subject_id %in% icu$subject_id, ]
-
-table <- icu %>% arrange(intime) %>%
+icu.unique <- icu %>% arrange(intime) %>%
   distinct(subject_id,
-           .keep_all = TRUE) %>% #sorts icu by ICU intime and then takes first ICU stay
+           .keep_all = TRUE) #sorts ICU by ICU intime and then takes first ICU stay
+
+ce <- chartevents.want %>%
+  semi_join(icu.unique, by = c("subject_id", "hadm_id")) %>%
+  left_join(select(icu.unique, subject_id, hadm_id, intime),
+            by = c("subject_id", "hadm_id")) %>%
+  filter(charttime >= intime) %>% #Filter for chart times after the intime
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = TRUE) %>% #Sorts by chart times by group
+  slice_head(n = 1) %>%
+  select(-charttime, -intime) %>% #removes time to make data smaller
+  spread(key = itemid, value = valuenum) %>% #Makes vital measurement type into a column
+  distinct(subject_id,
+           .keep_all = TRUE) #Removes any duplicated subject IDs from prior, since they are already ordered by time it will take the first ICU stay
+
+le <- labevents.want %>%
+  semi_join(icu.unique, by = c("subject_id", "hadm_id")) %>%
+  left_join(select(icu.unique, subject_id, hadm_id, intime),
+            by = c("subject_id", "hadm_id")) %>%
+  filter(charttime >= intime) %>%
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = TRUE) %>%
+  slice_head(n = 1) %>%
+  select(-charttime, -intime) %>%
+  spread(key = itemid, value = valuenum)
+
+table <- icu.unique %>%
   left_join(adm) %>%
-  left_join(patients) %>%
-  #left_join(le, by = c("subject_id", "hadm_id")) %>%
-  #left_join(ce, by = c("subject_id", "hadm_id")) %>%
-  mutate(tbl_age = anchor_age + year(admittime) - anchor_year) %>%
-  filter(tbl_age > 18)
-table <- table[order(table$subject_id), ]
+  left_join(patients) %>% #getting columns from adm, icu, and patients
+  left_join(le, 
+            by = c("subject_id", "hadm_id")) %>%
+  left_join(ce, 
+            by = c("subject_id")) %>%
+  mutate(tbl_age = anchor_age + year(admittime) - anchor_year) %>% #joining vital and lab measurements for first ICU stay
+  filter(tbl_age > 18) %>% #filters for adult patients
+  mutate(death30 = deathtime - admittime)
 
+table$death30 <- fifelse(table$death30 <= 30*24*3600, 1, 0, na = 0) #creates indicator of death within 30 days
 
+table <- table[order(table$subject_id), ] %>%
+  rename_at(vars(as.character(dict.want$itemid)), ~ dict.want$label) %>%
+  rename_at(vars(as.character(idset)), ~ idname) #Renaming vitals and chemicals
+head(table)
 
-#compare to Dr. Zhou: 
+#compare to Dr. Zhou's table for the icu patient data before adding vitals and labs:
 table1 <- icu %>% group_by(subject_id) %>%
   filter(rank(intime) == 1) %>%
   ungroup() %>%
@@ -450,6 +488,7 @@ table1 <- icu %>% group_by(subject_id) %>%
   filter(age_at_adm > 18)
 table1 <- table1[order(table1$subject_id), ]
 
-all.equal(table, table1)
+nrow(table) == nrow(table1) #check that only first icu visit is included after adding vitals and labs
 ```
 
+A table was created meeting the specifications for the question. For the indicator created for death within 30 days of hospital admission, `NA` for the variable `deathtime` indicated that there was no recorded deathtime, so it can be assumed that the patient did not die during their ICU stay.
