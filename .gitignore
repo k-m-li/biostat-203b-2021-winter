@@ -2,3 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
+admissions.csv.gz
+chartevents_filtered_itemid.csv.gz
+d_items.csv.gz
+icustays.csv.gz
+labevents_filtered_itemid.csv.gz
+patients.csv.gz

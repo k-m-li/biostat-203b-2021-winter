@@ -1,0 +1,494 @@
+---
+title: "Biostat 203B Homework 2"
+subtitle: Due Feb 5 @ 11:59PM
+output: 
+  html_document:
+    toc: true
+    toc_depth: 4 
+---
+
+Display machine information for reproducibility:
+```{r}
+sessionInfo()
+```
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = TRUE)
+library(tidyverse)
+library(data.table)
+library(lubridate)
+```
+
+```{r}
+os <- sessionInfo()$running
+if (str_detect(os, "Linux")) {
+  mimic_path <- "/usr/203b-data/mimic-iv"
+} else {
+  mimic_path <- "C:/Users/Kelly Li/Documents/R/B203b/biostat-203b-2021-winter/HW2"
+}
+```
+
+Use tidyverse (ggpot2, dplyr) to explore the [MIMIC-IV](https://mimic-iv.mit.edu) data introduced in [homework 1](https://ucla-biostat203b-2021winter.github.io/hw/hw1/hw1.html).
+
+```{r}
+system(str_c("tree -s -L 2 ", shQuote(mimic_path)), intern = TRUE) #This may not work since it is on my windows system
+```
+
+## Q1. PhysioNet credential
+
+At this moment, you should already get credentialed on the PhysioNet. Please include a screenshot of your `Data Use Agreement for the MIMIC-IV (v0.4)`.
+
+```{r, out.width = '70%'}
+getwd()
+knitr::include_graphics("datauseagree.pdf")
+```
+
+## Q2. `read.csv` (base R) vs `read_csv` (tidyverse) vs `fread` (data.table)
+
+There are quite a few utilities in R for reading data files. Let us test the speed of reading a moderate sized compressed csv file, `admissions.csv.gz`, by three programs: `read.csv` in base R, `read_csv` in tidyverse, and `fread` in the popular data.table package. Is there any speed difference?
+
+In this homework, we stick to the tidyverse. 
+
+```{r}
+system.time(read.csv("admissions.csv.gz"))
+system.time(read_csv("admissions.csv.gz"))
+system.time(fread("admissions.csv.gz"))
+```
+`read.csv` takes almost 10 to 20 times as long as the other two functions on the R server. Depending by system, generally, it will take longer than the other two functions.
+
+## Q3. ICU stays
+
+`icustays.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/icustays/>) contains data about Intensive Care Units (ICU) stays. Summarize following variables using appropriate numerics or graphs:   
+
+- how many unique `stay_id`?  
+- how many unique `subject_id`?  
+- length of ICU stay  
+- first ICU unit  
+- last ICU unit  
+
+```{r}
+icu <- read_csv("icustays.csv.gz")
+
+#Find unique counts for icu and create a table for ggplot to read
+count <- summarise_all(icu, n_distinct) %>%
+  pivot_longer(cols = everything(),
+               names_to = "variable",
+               values_to = "count")
+
+#plot for unique subject IDs
+ggplot(subset(count, variable %in% c("subject_id", "stay_id"))) +
+  geom_col(mapping = aes(x = variable, y = count))
+
+```
+
+There are 50048 unique subject IDs, and 69619 unique stay IDs.
+
+```{r}
+icu <- mutate(icu,
+              loglos = log(los))
+ggplot(icu) +
+  geom_histogram(mapping = aes(x = loglos),
+                 color = "black") +
+  xlab("Log transformed length of stay (fraction days)") +
+  ylab("Count")
+```
+
+Since length of stay was heavily right-skewed, a log transformation was performed in order to create a histogram of the counts.
+
+```{r}
+#Creating icu data set for grouped bar plot
+icu1 <- gather(icu, firstlast, unit, c(first_careunit, last_careunit))
+
+ggplot(icu1) +
+  geom_bar(mapping = aes(y = unit,
+                         fill = firstlast),
+           position = "dodge") +
+  scale_y_discrete(labels = c("TSICU", "SICU", "PACU", "Neuro SICU",
+                              "Neuro Stepdown", "Neuro Intermediate", 
+                              "Medicine", "MICU/SICU", "MICU", 
+                              "CCU", "CVICU")) +
+  scale_fill_discrete(name = "Care Unit Status",
+                      labels = c("First", "Last")) +
+  xlab("Count") +
+  ylab("Care Unit")
+
+```
+
+A grouped histogram for patient counts of first and last ICU in which they were cared for, displayed by unit type.
+
+## Q4. `admission` data
+
+Information of the patients admitted into hospital is available in `admissions.csv.gz`. See <https://mimic-iv.mit.edu/docs/datasets/core/admissions/> for details of each field in this file. Summarize following variables using appropriate graphs. Explain any patterns you observe.   
+
+- admission year  
+- admission month  
+- admission month day  
+- admission week day  
+- admission hour (anything unusual?)  
+- number of deaths in each year  
+- admission type  
+- number of admissions per patient  
+- admission location  
+- discharge location  
+- insurance  
+- language  
+- martial status  
+- ethnicity  
+- death 
+
+Note it is possible that one patient (uniquely identified by the `subject_id`) is admitted into hospital multiple times. When summarizing some demographic information, it makes sense to summarize based on unique patients. 
+
+```{r}
+#Creating data sets for plotting
+adm <- read_csv("admissions.csv.gz")
+#Create columns for year, month, day, and time
+adm <- adm %>% mutate(year = year(admittime), 
+                      month = month(admittime,
+                                    label = TRUE), 
+                      mday = mday(admittime),
+                      wday = wday(admittime,
+                                  label = TRUE),
+                      hour = hour(admittime)) %>%
+  add_count(year, hospital_expire_flag,
+            sort = TRUE,
+            name = "yeardeathcount") %>%
+  add_count(subject_id,
+            name = "admitcount")
+
+#Filters data for only patients who died
+yearlydeaths <- adm[adm$hospital_expire_flag == 1,]
+
+#Filter admissions to get data set containing only first admit per patient
+adm1 <- adm %>% arrange(desc(admittime)) %>%
+  distinct(subject_id,
+           .keep_all = TRUE)
+```
+
+For demographic information based off individual patients, a filtered version of admissions data is used to only account for the most recent admit per person. These demographics are insurance, language, marital status, and ethnicity. This is to give the most "up-to-date" summary statistics by person.
+
+```{r}
+#Year plot
+ggplot(adm) +
+  geom_freqpoly(mapping = aes(x = year),
+                binwidth = 1,
+                color = "black") +
+  scale_x_continuous(n.breaks = 10) +
+  xlab("Admission year") +
+  ylab("Density")
+
+#Month plot
+ggplot(adm) +
+  geom_bar(mapping = aes(x = month),
+           fill = "grey",
+           color = "black") +
+  xlab("Admission month") +
+  ylab("Count")
+
+#day plot
+ggplot(adm) +
+  geom_freqpoly(mapping = aes(x = mday),
+                binwidth = 1,
+                color = "black") +
+  scale_x_continuous(n.breaks = 10) +
+  xlab("Admission month day") +
+  ylab("Count")
+
+#weekday plot
+ggplot(adm) +
+  geom_bar(mapping = aes(x = wday),
+           fill = "grey",
+           color = "black") +
+  xlab("Admission week day") +
+  ylab("Count")
+
+#hour plot
+ggplot(adm) +
+  geom_freqpoly(mapping = aes(x = hour),
+                binwidth = 1,
+                color = "black") +
+  scale_x_continuous(n.breaks = 10) +
+  xlab("Admission hour") +
+  ylab("Count")
+```
+
+Plots are indicated for frequency of admission factors of time: year, month, day, weekday, and hour. Histograms were chosen for variables that had few values, such as week day or month. Frequency polygon plots were selected for variables with a large amount of x-values: day, hour, and year. Even distributions are observed for most time factors, with the exception being admission hour. Admission tends to spike beginning from the mid-afternoon to about midnight, with a local maximum in the morning around 7 AM.
+
+```{r}
+#number of deaths by year
+ggplot(yearlydeaths) +
+  geom_freqpoly(mapping = aes(x = year),
+                binwidth = 1,
+                color = "black") +
+  scale_x_continuous(n.breaks = 10) +
+  xlab("Year") +
+  ylab("Death count")
+
+```
+
+A frequency is given for deaths by year, where the value for `hospital_expire_flag` was checked.
+
+```{r}
+#admission type plot
+ggplot(adm) +
+  geom_bar(mapping = aes(y = admission_type),
+           fill = "grey",
+           color = "black") +
+  ylab("Admission type") +
+  xlab("Count")
+
+#admission count by patient
+ggplot(adm) +
+  geom_bar(mapping = aes(x = admitcount),
+           fill = "grey",
+           color = "black") +
+  xlab("Number of admissions") +
+  ylab("Patient count")
+
+#admission location
+ggplot(adm) +
+  geom_bar(mapping = aes(y = admission_location),
+           fill = "grey",
+           color = "black") +
+  xlab("Count") +
+  ylab("Admission location")
+
+#discharge location
+ggplot(adm) +
+  geom_bar(mapping = aes(y = discharge_location),
+           fill = "grey",
+           color = "black") +
+  xlab("Count") +
+  ylab("Discharge location")
+```
+
+Histograms are displayed indicating counts for varying admission types, number of patients with admission counts, patient location prior to hospital arrival, and discharge locations. Number of patients per admission count was chosen because it is a better representation of the distribution of admission number, which is more valuable than information on each individual patient. Clearly, most patients required very few visits, with some requiring multiple visits (up to nearly 250). 
+
+```{r}
+#insurance
+ggplot(adm1) +
+  geom_bar(mapping = aes(x = insurance),
+           fill = "grey",
+           color = "black") +
+  xlab("Insurance") +
+  ylab("Count")
+
+#language
+ggplot(adm1) +
+  geom_bar(mapping = aes(x = language),
+           fill = "grey",
+           color = "black") +
+  xlab("language") +
+  ylab("Count")
+
+#marital status
+ggplot(adm1) +
+  geom_bar(mapping = aes(x = marital_status),
+           fill = "grey",
+           color = "black") +
+  xlab("Marital status") +
+  ylab("Count")
+
+#ethnicity
+ggplot(adm1) +
+  geom_bar(mapping = aes(y = ethnicity),
+           fill = "grey",
+           color = "black") +
+  ylab("Ethnicity") +
+  xlab("Count")
+
+#death
+ggplot(adm1) +
+  geom_bar(mapping = aes(x = hospital_expire_flag),
+           fill = "grey",
+           color = "black") +
+  scale_x_discrete(labels = c("alive", "deceased")) +
+  xlab("Living status") +
+  ylab("Count")
+```
+
+Histograms are displayed for categorical variables for individual patients (insurance, language, marital status, ethnicity, and living status), from the data-set that only takes patient data from their last admission to the hospital. Last admission was chosen for up-to-date information on patients, most particularly for patient death within the given hospitalization.
+
+
+## Q5. `patient` data
+
+Explore `patients.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/core/patients/>) and summarize following variables using appropriate numerics and graphs:  
+
+- `gender`  
+- `anchor_age` (explain pattern you see)
+
+```{r}
+patients <- read_csv("patients.csv.gz")
+
+ggplot(patients) +
+  geom_bar(mapping = aes(x = gender),
+           fill = "grey",
+           color = "black") +
+  xlab("Gender") +
+  ylab("Count")
+
+count(patients,
+      gender)
+
+ggplot(patients) +
+  geom_histogram(mapping = aes(x = anchor_age),
+                binwidth = 1,
+                color = "black") +
+  xlab("Anchor Age") +
+  ylab("Count")
+```
+
+A bar graph is indicated for male and female gender in patients. There are 200226 recorded female patient observations, and 182994 recorded male patient observations. A histogram is included for distribution of anchor age. It is noted that there is a large amount of observations with anchor age 0. This could correlate to a large amount of missing values, with "0" as a placeholder. However, it is important that this placeholder might confound with infants, or very young children whose age may correlate to "0."
+
+## Q6. Lab results
+
+`labevents.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/hosp/labevents/>) contains all laboratory measurements for patients. 
+
+We are interested in the lab measurements of creatinine (50912), potassium (50971), sodium (50983), chloride (50902), bicarbonate (50882), hematocrit (51221), white blood cell count (51301), glucose (50931), magnesium (50960), calcium (50893), and lactate (50813). Find the `itemid`s of these lab measurements from `d_labitems.csv.gz` and retrieve a subset of `labevents.csv.gz` only containing these items.
+
+```{r}
+labevents <- fread("labevents_filtered_itemid.csv.gz",
+                   col.names = c("subject_id",
+                                 "hadm_id",
+                                 "itemid",
+                                 "charttime",
+                                 "valuenum"))
+#V1-5: subjid hadmid itemid charttime valuenum
+
+idset <- c(50912, 50971, 50983, 50902,
+           50882, 51221, 51301, 50931, 
+           50960, 50893, 50813)
+idname <- c("creatinine",
+            "potassium",
+            "sodium",
+            "chloride",
+            "bicarbonate",
+            "hematocrit",
+            "white blood cell count",
+            "glucose",
+            "magnesium",
+            "calcium",
+            "lactate") #used later to rename columns
+labevents.want <- labevents %>%
+  filter(itemid %in% idset) 
+
+head(labevents.want)
+```
+
+Since the `itemid`s are given for the lab events of interest, the set was filtered for only rows where the `itemid` was one of interest.
+
+## Q7. Vitals from chartered events
+
+We are interested in the vitals for ICU patients: heart rate, mean and systolic blood pressure (invasive and noninvasive measurements combined), body temperature, SpO2, and respiratory rate. Find the `itemid`s of these vitals from `d_items.csv.gz` and retrieve a subset of `chartevents.csv.gz` only containing these items.
+
+`chartevents.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/chartevents/>) contains all the charted data available for a patient. During their ICU stay, the primary repository of a patient’s information is their electronic chart. The `itemid` variable indicates a single measurement type in the database. The `value` variable is the value measured for `itemid`.
+
+`d_items.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/d_items/>) is the dictionary for the `itemid` in `chartevents.csv.gz`. 
+
+```{r}
+chartevents <- fread("chartevents_filtered_itemid.csv.gz",
+                     col.names = c("subject_id",
+                                   "hadm_id",
+                                   "stay_id",
+                                   "charttime",
+                                   "itemid",
+                                   "valuenum"))
+dict <- read_csv("d_items.csv.gz")
+
+grep("blood pressure|saturation|respiratory|temperature|heart rate", dict$label, 
+     value = TRUE, 
+     ignore.case = TRUE) #searching for labels to see what type of vital measurements match the kind of data we have
+
+want <- c("Heart Rate",
+          "Arterial Blood Pressure systolic",
+          "Arterial Blood Pressure mean",
+          "Non Invasive Blood Pressure systolic",
+          "Non Invasive Blood Pressure mean",
+          "Temperature Fahrenheit",
+          "Respiratory Rate") #wanted labels from previous grep search
+
+dict.want <- filter(dict, label %in% want) #filter out dictionary for only what we want
+chartevents.want <- filter(chartevents, itemid %in% dict.want$itemid) #filter chart events for only stuff from dictionary
+
+head(chartevents.want)
+```
+
+First, I used `grep` to search labels that would match the measurements that the question asked for. Then, the dictionary was filtered to get `itemid`s for the corresponding measurements of interest, and the data was filtered by `itemid` of interest. In the filtered data `chartevents_filtered_itemid.csv.gz`, there is no id for any variable involving SPO2, so it was not included.
+
+## Q8. Putting things together
+
+Let us create a tibble for all ICU stays, where rows are  
+
+- first ICU stay of each unique patient  
+- adults (age at admission > 18)  
+
+and columns contain at least following variables  
+
+- all variables in `icustays.csv.gz`  
+- all variables in `admission.csv.gz`  
+- all variables in `patients.csv.gz`  
+- first lab measurements during ICU stay  
+- first vitals measurement during ICU stay  
+- an indicator variable whether the patient died within 30 days of hospital admission  
+
+```{r}
+#My code:
+icu.unique <- icu %>% arrange(intime) %>%
+  distinct(subject_id,
+           .keep_all = TRUE) #sorts ICU by ICU intime and then takes first ICU stay
+
+ce <- chartevents.want %>%
+  semi_join(icu.unique, by = c("subject_id", "hadm_id")) %>%
+  left_join(select(icu.unique, subject_id, hadm_id, intime),
+            by = c("subject_id", "hadm_id")) %>%
+  filter(charttime >= intime) %>% #Filter for chart times after the intime
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = TRUE) %>% #Sorts by chart times by group
+  slice_head(n = 1) %>%
+  select(-charttime, -intime) %>% #removes time to make data smaller
+  spread(key = itemid, value = valuenum) %>% #Makes vital measurement type into a column
+  distinct(subject_id,
+           .keep_all = TRUE) #Removes any duplicated subject IDs from prior, since they are already ordered by time it will take the first ICU stay
+
+le <- labevents.want %>%
+  semi_join(icu.unique, by = c("subject_id", "hadm_id")) %>%
+  left_join(select(icu.unique, subject_id, hadm_id, intime),
+            by = c("subject_id", "hadm_id")) %>%
+  filter(charttime >= intime) %>%
+  group_by(subject_id, itemid) %>%
+  arrange(charttime, .by_group = TRUE) %>%
+  slice_head(n = 1) %>%
+  select(-charttime, -intime) %>%
+  spread(key = itemid, value = valuenum)
+
+table <- icu.unique %>%
+  left_join(adm) %>%
+  left_join(patients) %>% #getting columns from adm, icu, and patients
+  left_join(le, 
+            by = c("subject_id", "hadm_id")) %>%
+  left_join(ce, 
+            by = c("subject_id")) %>%
+  mutate(tbl_age = anchor_age + year(admittime) - anchor_year) %>% #joining vital and lab measurements for first ICU stay
+  filter(tbl_age > 18) %>% #filters for adult patients
+  mutate(death30 = deathtime - admittime)
+
+table$death30 <- fifelse(table$death30 <= 30*24*3600, 1, 0, na = 0) #creates indicator of death within 30 days
+
+table <- table[order(table$subject_id), ] %>%
+  rename_at(vars(as.character(dict.want$itemid)), ~ dict.want$label) %>%
+  rename_at(vars(as.character(idset)), ~ idname) #Renaming vitals and chemicals
+head(table)
+
+#compare to Dr. Zhou's table for the icu patient data before adding vitals and labs:
+table1 <- icu %>% group_by(subject_id) %>%
+  filter(rank(intime) == 1) %>%
+  ungroup() %>%
+  left_join(adm, by = c("subject_id", "hadm_id")) %>%
+  left_join(patients, by = "subject_id") %>%
+  mutate(age_at_adm = year(admittime) - anchor_year + anchor_age) %>%
+  filter(age_at_adm > 18)
+table1 <- table1[order(table1$subject_id), ]
+
+nrow(table) == nrow(table1) #check that only first icu visit is included after adding vitals and labs
+```
+
+A table was created meeting the specifications for the question. For the indicator created for death within 30 days of hospital admission, `NA` for the variable `deathtime` indicated that there was no recorded deathtime, so it can be assumed that the patient did not die during their ICU stay.
