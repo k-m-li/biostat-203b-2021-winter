@@ -13,7 +13,7 @@ sessionInfo()
 ```
 
 ```{r setup}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = FALSE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, cache.lazy = TRUE)
 library(tidyverse)
 library(data.table)
 library(lubridate)
@@ -165,7 +165,7 @@ adm1 <- adm %>% arrange(desc(admittime)) %>%
            .keep_all = TRUE)
 ```
 
-For demographic information based off individual patients, a filtered version of admissions data is used to only account for the first admit per person. These demographics are insurance, language, marital status, and ethnicity.
+For demographic information based off individual patients, a filtered version of admissions data is used to only account for the most recent admit per person. These demographics are insurance, language, marital status, and ethnicity. This is to give the most "up-to-date" summary statistics by person.
 
 ```{r}
 #Year plot
@@ -189,7 +189,6 @@ ggplot(adm) +
 ggplot(adm) +
   geom_freqpoly(mapping = aes(x = mday),
                 binwidth = 1,
-                fill = "grey",
                 color = "black") +
   scale_x_continuous(n.breaks = 10) +
   xlab("Admission month day") +
@@ -207,7 +206,6 @@ ggplot(adm) +
 ggplot(adm) +
   geom_freqpoly(mapping = aes(x = hour),
                 binwidth = 1,
-                fill = "grey",
                 color = "black") +
   scale_x_continuous(n.breaks = 10) +
   xlab("Admission hour") +
@@ -319,12 +317,59 @@ Explore `patients.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/core/patients
 - `gender`  
 - `anchor_age` (explain pattern you see)
 
+```{r}
+patients <- read_csv("/usr/203b-data/mimic-iv/core/patients.csv.gz")
+
+ggplot(patients) +
+  geom_bar(mapping = aes(x = gender),
+           fill = "grey",
+           color = "black") +
+  xlab("Gender") +
+  ylab("Count")
+
+count(patients,
+      gender)
+
+ggplot(patients) +
+  geom_histogram(mapping = aes(x = anchor_age),
+                binwidth = 1,
+                color = "black") +
+  xlab("Anchor Age") +
+  ylab("Count")
+```
+
+A bar graph is indicated for male and female gender in patients. There are 200226 recorded female patient observations, and 182994 recorded male patient observations. A histogram is included for distribution of anchor age. It is noted that there is a large amount of observations with anchor age 0. This could correlate to a large amount of missing values, with "0" as a placeholder. However, it is important that this placeholder might confound with infants, or very young children whose age may correlate to "0."
+
 ## Q6. Lab results
 
 `labevents.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/hosp/labevents/>) contains all laboratory measurements for patients. 
 
 We are interested in the lab measurements of creatinine (50912), potassium (50971), sodium (50983), chloride (50902), bicarbonate (50882), hematocrit (51221), white blood cell count (51301), glucose (50931), magnesium (50960), calcium (50893), and lactate (50813). Find the `itemid`s of these lab measurements from `d_labitems.csv.gz` and retrieve a subset of `labevents.csv.gz` only containing these items.
 
+```{r}
+setwd("/usr/203b-data/mimic-iv-derived-data/")
+labevents <- fread("/usr/203b-data/mimic-iv-derived-data/labevents_filtered_itemid.csv.gz",
+                   col.names = c("subject_id",
+                                 "hadm_id",
+                                 "itemid",
+                                 "charttime",
+                                 "valuenum"))
+#V1-5: subjid hadmid itemid charttime valuenum
+```
+
+
+```{r}
+#Filtering labevents for only measurements of interest
+
+idset <- c(50912, 50971, 50983, 50902,
+           50882, 51221, 51301, 50931, 
+           50960, 50893, 50813)
+labevents.want <- labevents %>%
+  filter(itemid %in% idset) 
+
+```
+
+Since the `itemid`s are given for 
 ## Q7. Vitals from chartered events
 
 We are interested in the vitals for ICU patients: heart rate, mean and systolic blood pressure (invasive and noninvasive measurements combined), body temperature, SpO2, and respiratory rate. Find the `itemid`s of these vitals from `d_items.csv.gz` and retrieve a subset of `chartevents.csv.gz` only containing these items.
@@ -332,6 +377,34 @@ We are interested in the vitals for ICU patients: heart rate, mean and systolic 
 `chartevents.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/chartevents/>) contains all the charted data available for a patient. During their ICU stay, the primary repository of a patient’s information is their electronic chart. The `itemid` variable indicates a single measurement type in the database. The `value` variable is the value measured for `itemid`.
 
 `d_items.csv.gz` (<https://mimic-iv.mit.edu/docs/datasets/icu/d_items/>) is the dictionary for the `itemid` in `chartevents.csv.gz`. 
+
+```{r}
+setwd("/usr/203b-data/mimic-iv-derived-data/")
+chartevents <- fread("chartevents_filtered_itemid.csv.gz",
+                     col.names = c("subject_id",
+                                   "hadm_id",
+                                   "stay_id",
+                                   "charttime",
+                                   "itemid",
+                                   "valuenum"))
+dict <- read_csv("/usr/203b-data/mimic-iv/icu/d_items.csv.gz")
+
+grep("blood pressure|oxygen saturation|respiratory|temperature|heart rate", dict$label, 
+     value = TRUE, 
+     ignore.case = TRUE) #searching for labels to see what type of vital measurements match the kind of data we have
+
+want <- c("Heart Rate",
+          "Arterial Blood Pressure systolic",
+          "Arterial Blood Pressure mean",
+          "Non Invasive Blood Pressure systolic",
+          "Non Invasive Blood Pressure mean",
+          "Temperature Celsius",
+          "PAR-Oxygen saturation",
+          "Respiratory Rate") #wanted labels from previous grep search
+
+dict.want <- filter(dict, label %in% want) #filter out dictionary for only what we want
+chartevents.want <- filter(chartevents, itemid %in% dict.want$itemid) #filter chart events for only stuff from dictionary
+```
 
 ## Q8. Putting things together
 
@@ -348,3 +421,35 @@ and columns contain at least following variables
 - first lab measurements during ICU stay  
 - first vitals measurement during ICU stay  
 - an indicator variable whether the patient died within 30 days of hospital admission  
+
+```{r}
+#My code:
+ce <- chartevents.want[chartevents.want$subject_id %in% icu$subject_id, ]
+le <- labevents.want[labevents.want$subject_id %in% icu$subject_id, ]
+
+table <- icu %>% arrange(intime) %>%
+  distinct(subject_id,
+           .keep_all = TRUE) %>% #sorts icu by ICU intime and then takes first ICU stay
+  left_join(adm) %>%
+  left_join(patients) %>%
+  #left_join(le, by = c("subject_id", "hadm_id")) %>%
+  #left_join(ce, by = c("subject_id", "hadm_id")) %>%
+  mutate(tbl_age = anchor_age + year(admittime) - anchor_year) %>%
+  filter(tbl_age > 18)
+table <- table[order(table$subject_id), ]
+
+
+
+#compare to Dr. Zhou: 
+table1 <- icu %>% group_by(subject_id) %>%
+  filter(rank(intime) == 1) %>%
+  ungroup() %>%
+  left_join(adm, by = c("subject_id", "hadm_id")) %>%
+  left_join(patients, by = "subject_id") %>%
+  mutate(age_at_adm = year(admittime) - anchor_year + anchor_age) %>%
+  filter(age_at_adm > 18)
+table1 <- table1[order(table1$subject_id), ]
+
+all.equal(table, table1)
+```
+
