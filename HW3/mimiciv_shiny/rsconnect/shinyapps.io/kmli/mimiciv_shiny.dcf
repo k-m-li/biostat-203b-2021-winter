@@ -1,0 +1,12 @@
+name: mimiciv_shiny
+title: mimiciv_shiny
+username:
+account: kmli
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3740145
+bundleId: 4303575
+url: https://kmli.shinyapps.io/mimiciv_shiny/
+when: 1614927228.55206
+asMultiple: FALSE
+asStatic: FALSE
