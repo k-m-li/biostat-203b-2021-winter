@@ -32,14 +32,20 @@ Through the Shiny app developed in HW3, we observe abundant missing values in th
     A more thorough book treatment of the practical imputation strategies is the book [*_Flexible Imputation of Missing Data_*](https://stefvanbuuren.name/fimd/) by Stef van Buuren. 
 
 1. Explain the jargon MCAR, MAR, and MNAR. \
-Missing Completely at Random (MCAR): 
+Missing Completely at Random (MCAR): if the probability of being missing is the same for all cases. \
+Missing at Random (MAR): if the probability of being missing is the same for groups defined by the observed data (assuming MCAR within the included sample/type) \
+Missing Not at Random (MNAR): If neither MCAR nor MAR applies.
 
-
-
-
-2. Explain in a couple of sentences how the Multiple Imputation by Chained Equations (MICE) work.
+2. Explain in a couple of sentences how the Multiple Imputation by Chained Equations (MICE) work. \
+MICE replaces missing data in a data set, while applying assumptions about the mechanism of missing data (MCAR/MAR). Missing values are replaced (imputed) with something "reasonable", such as a mean. Then, one variable is chosen and becomes the dependent variable. Regression is fitted with the non-missing dependent variable on other variables, and used to estimate missing values of the dependent variable. These become the replacement values, and it is repeated for other variables of interest that are missing. Then, the entire cycle is re-run a specified number of times, or until convergence is met. The final imputed values are kept to replace the missing values.
 
 3. Perform a data quality check of the ICU stays data. Discard variables with substantial missingness, say >5000 `NA`s. Replace apparent data entry errors by `NA`s.
+
+```{r}
+icu <- read_csv("icustays.csv.gz")
+```
+
+
 
 4. Impute missing values by `miceRanger` (request $m=3$ datasets). This step is very computational intensive. Make sure to save the imputation results as a file.
 
