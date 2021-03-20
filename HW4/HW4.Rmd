@@ -193,6 +193,9 @@ glmpredict <- predict(glmtrain, test, type = "response")
 preddeath30 <- ifelse(glmpredict > 0.5, 1, 0)
 
 glmtable <- table(preddeath30, test$death30)
+preddeath30 <- ifelse(glmpredict > 0.5, 1, 0)
+
+glmtable <- table(preddeath30, testdeath30)
 glmspec <- glmtable[1,1]/(glmtable[1,2] + glmtable[1,1])
 glmsens <- glmtable[2,1]/(glmtable[2,2] + glmtable[2,1])
 rfspec <- 1 - rftrainmodel$confusion[1,3]
