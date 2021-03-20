@@ -8,3 +8,4 @@ d_items.csv.gz
 icustays.csv.gz
 labevents_filtered_itemid.csv.gz
 patients.csv.gz
+miceObj.RData

@@ -21,6 +21,7 @@ Load database libraries and the tidyverse frontend:
 library(tidyverse)
 library(lubridate)
 library(miceRanger)
+library(randomForest)
 ```
 
 ## Q1. Missing data
@@ -42,23 +43,167 @@ MICE replaces missing data in a data set, while applying assumptions about the m
 3. Perform a data quality check of the ICU stays data. Discard variables with substantial missingness, say >5000 `NA`s. Replace apparent data entry errors by `NA`s.
 
 ```{r}
-icu <- read_csv("icustays.csv.gz")
+setwd("C:/Users/Kelly Li/Documents/R/B203b/biostat-203b-2021-winter")
+icu <- readRDS("HW3/mimiciv_shiny/icu_cohort.rds")
+icumissing <- colSums(is.na(icu))
+icufil <- icu[, colSums(is.na(icu)) <= 5000]
+```
+
+4. Impute missing values by `miceRanger` (request $m=3$ datasets). This step is very computational intensive. Make sure to save the imputation results as a file.
+
+```{r}
+#Variables we want to impute:
+imputewant <- c("gender", "marital_status", "ethnicity", "bicarbonate",
+                "calcium", "chloride", "creatinine", "glucose", "magnesium",
+                "potassium", "sodium", "hematocrit", "wbc", "heart_rate", 
+                "non_invasive_blood_pressure_systolic", "non_invasive_blood_pressure_mean",
+                "respiratory_rate", "temperature_fahrenheit","tbl_age","death30" )
+
+if(file.exists("miceObj.RData")){
+  load("miceObj.RData")
+} else{
+ miceObj <- miceRanger(icufil,
+                      m = 3,
+                      vars = imputewant,
+                      max.depth = 10,
+                      returnModels = TRUE)
+ save(miceObj, file = "./miceObj.RData")
+}
+
+imputed <- completeData(miceObj) 
+```
+
+5. Make imputation diagnostic plots and explain what they mean. \
+
+Diagnostic to compare imputed distribution vs the original distribution for all continuous variables:
+
+```{r, fig.width = 8}
+plotDistributions(miceObj, vars = "allNumeric")
+```
+
+Boxplot of correlations between imputed values at each iteration to show convergence of values between data sets:
+
+```{r, fig.width = 8}
+plotCorrelations(miceObj, vars = "allNumeric")
+```
+
+Checking for imputed data convergence:
+```{r, fig.width = 8}
+plotVarConvergence(miceObj, vars = "allNumeric")
+```
+
+OOB accuracy for classification to measure accuracy of predicted rows:
+```{r, fig.width = 8}
+plotModelError(miceObj, vars = "allNumeric")
+```
+
+Plotting importance for each imputed variable, where the top axis are the predictors of the variables on the left
+```{r, fig.width = 8}
+plotVarImportance(miceObj,
+                  tl.cex = 0.7,
+                  cl.cex = 0.7,
+                  cl.ratio = 0.1,
+                  number.cex = 0.45)
 ```
 
 
 
-4. Impute missing values by `miceRanger` (request $m=3$ datasets). This step is very computational intensive. Make sure to save the imputation results as a file.
-
-5. Make imputation diagnostic plots and explain what they mean.
-
 6. Obtain a complete data set by averaging the 3 imputed data sets.
+```{r}
+df1 <- imputed$Dataset_1 %>% data.matrix()
+df2 <- imputed$Dataset_2 %>% data.matrix()
+df3 <- imputed$Dataset_3 %>% data.matrix()
+
+df <- (df1 + df2 + df3)/3
+
+dfnew <- df %>% as.data.frame() %>%
+  mutate_at(c("gender",
+             "marital_status",
+             "ethnicity"),
+           function(x)round(x)) %>% #Rounds categorical data to the nearest integer to go to "majority" prediction of the 3 data sets
+  mutate_at(c("gender",
+              "marital_status",
+              "ethnicity"),
+            function(x)as.factor(x)) #Turns numeric into categorical for logistic regression
+dfnew$death30 <- ifelse(dfnew$death30 == 1, 0, 2)
+dfnew$death30 <- ifelse(dfnew$death30 == 2, 1, 0)
+```
+
 
 ## Q2. Predicting 30-day mortality
 
 Develop at least two analytic approaches for predicting the 30-day mortality of patients admitted to ICU using demographic information (gender, age, marital status, ethnicity), first lab measurements during ICU stay, and first vital measurements during ICU stay. For example, you can use (1) logistic regression (`glm()` function), (2) logistic regression with lasso penalty (glmnet package), (3) random forest (randomForest package), or (4) neural network.
 
 1. Partition data into 80% training set and 20% test set. Stratify partitioning according the 30-day mortality status.
+```{r}
+set.seed(203)
+training <- dfnew %>% group_by(death30) %>%
+  slice_sample(prop = 0.8)
+test <- anti_join(dfnew, training)
+```
 
 2. Train the models using the training set.
+```{r}
+#Logistic regression:
+set.seed(203)
+glmtrain <- glm(death30 ~ gender + tbl_age + marital_status +
+                ethnicity + bicarbonate + calcium +
+                chloride + creatinine + glucose +
+                magnesium + potassium + sodium +
+                hematocrit + wbc + heart_rate +
+                non_invasive_blood_pressure_systolic +
+                non_invasive_blood_pressure_mean +
+                respiratory_rate + temperature_fahrenheit,
+                data = training,
+                family = "binomial")
+#Random Forest
+treetest <- test %>% select(gender, tbl_age, marital_status,
+                        ethnicity, bicarbonate, calcium,
+                        chloride, creatinine, glucose,
+                        magnesium, potassium, sodium,
+                        hematocrit, wbc, heart_rate,
+                        non_invasive_blood_pressure_systolic,
+                        non_invasive_blood_pressure_mean,
+                        respiratory_rate, temperature_fahrenheit)
+rftraining <- training
+rftraining$death30 <- as.factor(rftraining$death30)
+rftest <- test
+rftest$death30 <- as.factor(rftest$death30)
+rftrainmodel <- randomForest(death30 ~ gender + tbl_age + marital_status +
+                             ethnicity + bicarbonate + calcium +
+                             chloride + creatinine + glucose +
+                             magnesium + potassium + sodium +
+                             hematocrit + wbc + heart_rate +
+                             non_invasive_blood_pressure_systolic +
+                             non_invasive_blood_pressure_mean +
+                             respiratory_rate + temperature_fahrenheit,
+                             data = rftraining,
+                             xtest = treetest,
+                             ytest = rftest$death30)
+     
+```
+
+
 
 3. Compare model prediction performance on the test set.
+
+```{r}
+#Logistic regression:
+glmpredict <- predict(glmtrain, test, type = "response")
+preddeath30 <- ifelse(glmpredict > 0.5, 1, 0)
+
+glmtable <- table(preddeath30, test$death30)
+preddeath30 <- ifelse(glmpredict > 0.5, 1, 0)
+
+glmtable <- table(preddeath30, testdeath30)
+glmspec <- glmtable[1,1]/(glmtable[1,2] + glmtable[1,1])
+glmsens <- glmtable[2,1]/(glmtable[2,2] + glmtable[2,1])
+rfspec <- 1 - rftrainmodel$confusion[1,3]
+rfsens <- 1 - rftrainmodel$confusion[2,3]
+
+tab <- matrix(c(glmspec, glmsens, rfspec, rfsens), ncol = 2)
+colnames(tab) <- c ("logistic", "random forest")
+rownames(tab) <- c("specificity", "sensitivity")
+tab
+```
+Both models exhibited high specificity, and low sensitivity. The logistic model had lower specificity, but higher sensitivity, than the random forest model. This indicates that the random forest model has an easier time correctly identifying/predicting people who do not die within 30 days, but also has a higher false negative rate than the logistic model.
